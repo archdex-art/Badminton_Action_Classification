@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme — editorial, Stripe/Vercel-grade */
+    --canvas: 250 251 252; /* #FAFBFC */
+    --surface: 255 255 255; /* #FFFFFF cards */
+    --elevated: 255 255 255;
+    --ink: 15 23 42; /* #0F172A */
+    --muted: 100 116 139; /* #64748B */
+    --line: 15 23 42; /* used at low alpha for borders */
+    --accent: 0 212 255; /* #00D4FF */
+    --line-alpha: 0.08;
+  }
+
+  .dark {
+    --canvas: 2 6 23; /* #020617 dark-mode background */
+    --surface: 15 23 42; /* #0F172A dark-mode surface */
+    --elevated: 23 33 56;
+    --ink: 237 242 248;
+    --muted: 148 163 184;
+    --line: 226 232 240;
+    --accent: 79 195 247; /* #4FC3F7 hover-accent reads better on dark */
+    --line-alpha: 0.10;
+  }
+
+  * {
+    border-color: rgb(var(--line) / var(--line-alpha));
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  body {
+    background-color: rgb(var(--canvas));
+    color: rgb(var(--ink));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    background-color: rgb(var(--accent) / 0.22);
+    color: rgb(var(--ink));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .container-content {
+    @apply mx-auto w-full max-w-content px-6 md:px-8;
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted;
+  }
+
+  .hairline {
+    border-color: rgb(var(--line) / var(--line-alpha));
+  }
+
+  /* Frosted-glass card */
+  .glass {
+    background-color: rgb(var(--surface) / 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  .text-gradient {
+    background-image: linear-gradient(
+      120deg,
+      rgb(var(--ink)) 0%,
+      #283593 55%,
+      #00a3c4 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Subtle dot-grid used in dark sections */
+  .dot-grid {
+    background-image: radial-gradient(
+      rgba(255, 255, 255, 0.06) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  .tracking-display {
+    letter-spacing: -0.035em;
+  }
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  }
+}
+
+/* ── Premium circular theme reveal (View Transitions API) ─────────────────
+   We disable the default cross-fade and drive a clip-path circle on the
+   incoming snapshot from JS (see ThemeToggle.tsx). The new theme is painted
+   above the old one and revealed outward from the toggle's position, with a
+   soft glow traced along the growing edge. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+  /* Soft glow + slight blur falloff around the expanding boundary. */
+  filter: drop-shadow(0 0 26px rgba(var(--reveal-glow, 0 212 255) / 0.34));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Disable the radial reveal; fall back to a subtle 150ms cross-fade. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 150ms;
+    filter: none;
+  }
+}
+
+/* Intro wordmark shine — a highlight band swept across the text glyphs only
+   (the layer is bg-clip:text, so nothing outside the letters lights up). */
+@keyframes intro-text-shine {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+/* Hide the native cursor when the custom cursor is active (mouse devices only). */
+.has-custom-cursor,
+.has-custom-cursor * {
+  cursor: none !important;
+}
