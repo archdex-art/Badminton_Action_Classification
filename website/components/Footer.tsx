@@ -24,7 +24,6 @@ const COLUMNS = [
     links: [
       { label: "GitHub", href: SITE.repo },
       { label: "Dataset", href: "#" },
-      { label: "License (MIT)", href: "#" },
       { label: "Contact", href: "mailto:research@skeletoncourt.dev" },
     ],
   },
@@ -84,7 +83,7 @@ export function Footer() {
         </div>
 
         <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-7 text-sm text-white/40 sm:flex-row sm:items-center">
-          <p>© {new Date().getFullYear()} {SITE.name}. Released under the MIT License.</p>
+          <p>© {new Date().getFullYear()} {SITE.name}.</p>
           <p className="font-mono text-xs">
             Skeleton-based · shuttlecock-free · 30 FPS
           </p>
