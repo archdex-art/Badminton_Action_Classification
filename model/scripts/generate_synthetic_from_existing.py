@@ -2,8 +2,8 @@ import json
 import os
 import numpy as np
 
-manifest_path = '/Users/archdex/Desktop/Action_classification/data/manifest.jsonl'
-kp_dir = '/Users/archdex/Desktop/Action_classification/data/kp'
+manifest_path = '/Users/archdex/Desktop/Badminton_Action_Classification/data/manifest.jsonl'
+kp_dir = '/Users/archdex/Desktop/Badminton_Action_Classification/data/kp'
 
 def mirror(kp: np.ndarray, image_width: float) -> np.ndarray:
     kp = kp.copy()

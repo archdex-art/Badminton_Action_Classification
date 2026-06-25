@@ -20,16 +20,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No sign-in in progress. Please log in again." }, { status: 400 });
   }
 
-  // Rate Limiting: 5 requests / 10 minutes per IP/User pair
-  const rateLimitKey = `2fa:${userId}:${ip}`;
-  const rateLimit = checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
+  // Rate Limiting: 5 requests / 15 minutes per IP
+  const rateLimit = await checkRateLimit(`ratelimit:2fa:${ip}`, 5, 15 * 60 * 1000);
   if (!rateLimit.success) {
-    console.warn(`[SECURITY] Rate limit exceeded on 2FA for user ${userId} IP: ${ip}`);
+    console.warn(`[SECURITY] Rate limit exceeded on 2fa for IP: ${ip}`);
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },
       {
         status: 429,
-        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+        headers: {
+          "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+          "X-RateLimit-Reset": rateLimit.reset.toString(),
+        },
       }
     );
   }

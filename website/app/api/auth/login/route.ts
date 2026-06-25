@@ -26,14 +26,19 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
 
   // Rate Limiting: 5 requests / 15 minutes per IP
-  const rateLimit = checkRateLimit(`login:${ip}`, 5, 15 * 60 * 1000);
+  const rateLimit = await checkRateLimit(`ratelimit:login:${ip}`, 5, 15 * 60 * 1000);
   if (!rateLimit.success) {
     console.warn(`[SECURITY] Rate limit exceeded on login for IP: ${ip}`);
     return NextResponse.json(
       { error: "Too many login attempts. Please try again later." },
       {
         status: 429,
-        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+        headers: {
+          "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+          "X-RateLimit-Reset": rateLimit.reset.toString(),
+        },
       }
     );
   }
@@ -54,7 +59,7 @@ export async function POST(req: Request) {
   const lowerEmail = email.toLowerCase();
 
   // Check Account Lockout
-  if (checkLockout(lowerEmail)) {
+  if (await checkLockout(lowerEmail)) {
     console.warn(`[SECURITY] Attempted login on locked account: ${lowerEmail} from IP: ${ip}`);
     return NextResponse.json(
       { error: "Account is temporarily locked due to multiple failed login attempts." },
@@ -65,14 +70,14 @@ export async function POST(req: Request) {
   const user = findUserByEmail(lowerEmail);
   if (!user || !verifyPassword(password, user.password_hash)) {
     // Record failure
-    recordFailedLogin(lowerEmail);
+    await recordFailedLogin(lowerEmail);
     console.warn(`[SECURITY] Failed login attempt for: ${lowerEmail} from IP: ${ip}`);
     // Same message for both to avoid user enumeration.
     return NextResponse.json({ error: "Incorrect email or password." }, { status: 401 });
   }
 
   // Clear failed login attempts upon successful credential verification
-  clearFailedLogin(lowerEmail);
+  await clearFailedLogin(lowerEmail);
 
   // Unverified accounts get bounced to verification with a fresh code.
   if (!user.email_verified) {

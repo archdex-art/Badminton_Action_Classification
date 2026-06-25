@@ -170,6 +170,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </p>
         )}
 
+
         <motion.button
           type="submit"
           disabled={pending}

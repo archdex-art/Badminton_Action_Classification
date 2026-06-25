@@ -60,13 +60,23 @@ function simulateInference(): Prediction[] {
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
-  const rateLimit = checkRateLimit(`classify:${ip}`, 30, 60 * 1000); // 30 req / 1 minute
+  const user = await getCurrentUser();
+  const rateLimitKey = user ? `ratelimit:classify:${user.id}` : `ratelimit:classify:${ip}`;
+  const rateLimit = await checkRateLimit(rateLimitKey, 30, 60 * 1000); // 30 req / 1 minute
 
   if (!rateLimit.success) {
-    console.warn(`[SECURITY] Rate limit exceeded on classify for IP: ${ip}`);
+    console.warn(`[SECURITY] Rate limit exceeded on classify for ${rateLimitKey}`);
     return NextResponse.json(
       { error: "Rate limit exceeded." },
-      { status: 429, headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() } }
+      { 
+        status: 429, 
+        headers: { 
+          "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+          "X-RateLimit-Reset": rateLimit.reset.toString(),
+        } 
+      }
     );
   }
 
@@ -121,7 +131,6 @@ export async function POST(req: Request) {
   const safeName = `${crypto.randomUUID()}-${clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
 
   // Persist for signed-in users; the public demo runs anonymously.
-  const user = await getCurrentUser();
   if (user) {
     recordClassification({
       userId: user.id,

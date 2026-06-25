@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { scryptSync, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { getDb, newId } from "./db";
+import { redis } from "./redis";
 
 export const SESSION_COOKIE = "sc_session";
 export const AUTHED_COOKIE = "sc_authed"; // readable UI hint (not sensitive)
@@ -186,37 +187,36 @@ export async function clearTwofaPending() {
 }
 
 // ── Account Lockout ────────────────────────────────────────────────────────
-export function checkLockout(email: string): boolean {
-  const row = getDb()
-    .prepare("SELECT locked_until FROM account_lockouts WHERE email = ?")
-    .get(email.toLowerCase()) as { locked_until: number } | undefined;
-  if (!row) return false;
-  return Date.now() < row.locked_until;
-}
-
-export function recordFailedLogin(email: string) {
-  const db = getDb();
-  const lowerEmail = email.toLowerCase();
-  let row = db
-    .prepare("SELECT failed_attempts FROM account_lockouts WHERE email = ?")
-    .get(lowerEmail) as { failed_attempts: number } | undefined;
-
-  if (!row) {
-    db.prepare("INSERT INTO account_lockouts (email, failed_attempts, locked_until) VALUES (?, 1, 0)").run(
-      lowerEmail
-    );
-  } else {
-    const attempts = row.failed_attempts + 1;
-    let locked_until = 0;
-    if (attempts >= 5) {
-      locked_until = Date.now() + 15 * 60 * 1000; // 15 mins lockout
-    }
-    db.prepare(
-      "UPDATE account_lockouts SET failed_attempts = ?, locked_until = ? WHERE email = ?"
-    ).run(attempts, locked_until, lowerEmail);
+export async function checkLockout(email: string): Promise<boolean> {
+  try {
+    const attempts = await redis.get<number>(`lockout:${email.toLowerCase()}`);
+    return attempts !== null && attempts >= 5;
+  } catch (error) {
+    console.error("[SECURITY] Redis checkLockout error:", error);
+    return false;
   }
 }
 
-export function clearFailedLogin(email: string) {
-  getDb().prepare("DELETE FROM account_lockouts WHERE email = ?").run(email.toLowerCase());
+export async function recordFailedLogin(email: string) {
+  const lowerEmail = email.toLowerCase();
+  const key = `lockout:${lowerEmail}`;
+  try {
+    const attempts = await redis.incr(key);
+    if (attempts === 1) {
+      await redis.expire(key, 3600); // 1 hour initial tracking window
+    } else if (attempts >= 5) {
+      await redis.expire(key, 900); // 15 minutes lockout
+      console.warn(`[SECURITY] Account locked due to repeated failed logins: ${lowerEmail}`);
+    }
+  } catch (error) {
+    console.error("[SECURITY] Redis recordFailedLogin error:", error);
+  }
+}
+
+export async function clearFailedLogin(email: string) {
+  try {
+    await redis.del(`lockout:${email.toLowerCase()}`);
+  } catch (error) {
+    console.error("[SECURITY] Redis clearFailedLogin error:", error);
+  }
 }
