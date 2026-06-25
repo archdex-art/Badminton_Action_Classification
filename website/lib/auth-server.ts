@@ -115,7 +115,7 @@ export async function createSession(userId: string) {
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: SESSION_TTL,
   });
@@ -150,7 +150,7 @@ export async function setPending(userId: string) {
   jar.set(PENDING_COOKIE, userId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: 60 * 30,
   });
@@ -171,7 +171,7 @@ export async function setTwofaPending(userId: string) {
   jar.set(TWOFA_COOKIE, userId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: 60 * 10,
   });
@@ -183,4 +183,40 @@ export async function getTwofaPending(): Promise<string | null> {
 
 export async function clearTwofaPending() {
   (await cookies()).delete(TWOFA_COOKIE);
+}
+
+// ── Account Lockout ────────────────────────────────────────────────────────
+export function checkLockout(email: string): boolean {
+  const row = getDb()
+    .prepare("SELECT locked_until FROM account_lockouts WHERE email = ?")
+    .get(email.toLowerCase()) as { locked_until: number } | undefined;
+  if (!row) return false;
+  return Date.now() < row.locked_until;
+}
+
+export function recordFailedLogin(email: string) {
+  const db = getDb();
+  const lowerEmail = email.toLowerCase();
+  let row = db
+    .prepare("SELECT failed_attempts FROM account_lockouts WHERE email = ?")
+    .get(lowerEmail) as { failed_attempts: number } | undefined;
+
+  if (!row) {
+    db.prepare("INSERT INTO account_lockouts (email, failed_attempts, locked_until) VALUES (?, 1, 0)").run(
+      lowerEmail
+    );
+  } else {
+    const attempts = row.failed_attempts + 1;
+    let locked_until = 0;
+    if (attempts >= 5) {
+      locked_until = Date.now() + 15 * 60 * 1000; // 15 mins lockout
+    }
+    db.prepare(
+      "UPDATE account_lockouts SET failed_attempts = ?, locked_until = ? WHERE email = ?"
+    ).run(attempts, locked_until, lowerEmail);
+  }
+}
+
+export function clearFailedLogin(email: string) {
+  getDb().prepare("DELETE FROM account_lockouts WHERE email = ?").run(email.toLowerCase());
 }

@@ -7,28 +7,72 @@ import {
   setPending,
   setTwofaPending,
   verifyPassword,
+  checkLockout,
+  recordFailedLogin,
+  clearFailedLogin,
 } from "@/lib/auth-server";
 import { sendTwoFactorEmail, sendVerificationEmail, devCodeExposable } from "@/lib/mailer";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { loginSchema } from "@/lib/validations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function getClientIp(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+}
+
 export async function POST(req: Request) {
-  let body: { email?: string; password?: string };
+  const ip = getClientIp(req);
+
+  // Rate Limiting: 5 requests / 15 minutes per IP
+  const rateLimit = checkRateLimit(`login:${ip}`, 5, 15 * 60 * 1000);
+  if (!rateLimit.success) {
+    console.warn(`[SECURITY] Rate limit exceeded on login for IP: ${ip}`);
+    return NextResponse.json(
+      { error: "Too many login attempts. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+      }
+    );
+  }
+
+  let body;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request format." }, { status: 400 });
   }
 
-  const email = (body.email ?? "").trim().toLowerCase();
-  const password = body.password ?? "";
+  const parsed = loginSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
 
-  const user = findUserByEmail(email);
+  const { email, password } = parsed.data;
+  const lowerEmail = email.toLowerCase();
+
+  // Check Account Lockout
+  if (checkLockout(lowerEmail)) {
+    console.warn(`[SECURITY] Attempted login on locked account: ${lowerEmail} from IP: ${ip}`);
+    return NextResponse.json(
+      { error: "Account is temporarily locked due to multiple failed login attempts." },
+      { status: 403 }
+    );
+  }
+
+  const user = findUserByEmail(lowerEmail);
   if (!user || !verifyPassword(password, user.password_hash)) {
+    // Record failure
+    recordFailedLogin(lowerEmail);
+    console.warn(`[SECURITY] Failed login attempt for: ${lowerEmail} from IP: ${ip}`);
     // Same message for both to avoid user enumeration.
     return NextResponse.json({ error: "Incorrect email or password." }, { status: 401 });
   }
+
+  // Clear failed login attempts upon successful credential verification
+  clearFailedLogin(lowerEmail);
 
   // Unverified accounts get bounced to verification with a fresh code.
   if (!user.email_verified) {
@@ -37,7 +81,7 @@ export async function POST(req: Request) {
     await sendVerificationEmail(user.email, user.name, code);
     return NextResponse.json(
       { error: "verify", devCode: devCodeExposable() ? code : undefined },
-      { status: 403 },
+      { status: 403 }
     );
   }
 
@@ -54,5 +98,6 @@ export async function POST(req: Request) {
   }
 
   await createSession(user.id);
+  console.log(`[AUTH] Successful login for: ${lowerEmail}`);
   return NextResponse.json({ ok: true });
 }

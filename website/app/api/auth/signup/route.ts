@@ -6,41 +6,61 @@ import {
   setPending,
 } from "@/lib/auth-server";
 import { sendVerificationEmail, devCodeExposable } from "@/lib/mailer";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { signupSchema } from "@/lib/validations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function getClientIp(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+}
 
 export async function POST(req: Request) {
-  let body: { name?: string; email?: string; password?: string };
+  const ip = getClientIp(req);
+
+  // Rate Limiting: 3 requests / 1 hour per IP
+  const rateLimit = checkRateLimit(`signup:${ip}`, 3, 60 * 60 * 1000);
+  if (!rateLimit.success) {
+    console.warn(`[SECURITY] Rate limit exceeded on signup for IP: ${ip}`);
+    return NextResponse.json(
+      { error: "Too many signup attempts. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+      }
+    );
+  }
+
+  let body;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request format." }, { status: 400 });
   }
 
-  const name = (body.name ?? "").trim();
-  const email = (body.email ?? "").trim().toLowerCase();
-  const password = body.password ?? "";
+  const parsed = signupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
 
-  if (name.length < 2) return NextResponse.json({ error: "Please enter your name." }, { status: 422 });
-  if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Enter a valid email." }, { status: 422 });
-  if (password.length < 8)
-    return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 422 });
+  const { name, email, password } = parsed.data;
+  const lowerEmail = email.toLowerCase();
 
-  if (findUserByEmail(email)) {
+  if (findUserByEmail(lowerEmail)) {
     return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
   }
 
-  const user = createUser(email, name, password);
+  const user = createUser(lowerEmail, name, password);
   await setPending(user.id);
   const code = createVerificationCode(user.id);
-  await sendVerificationEmail(email, name, code);
+  await sendVerificationEmail(lowerEmail, name, code);
+  
+  console.log(`[AUTH] New user signup: ${lowerEmail}`);
 
   return NextResponse.json({
     ok: true,
-    email,
+    email: lowerEmail,
     // Only present in dev without SMTP, so verification is testable locally.
     devCode: devCodeExposable() ? code : undefined,
   });
