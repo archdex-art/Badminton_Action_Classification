@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ACTIONS } from "@/lib/data";
 import { getCurrentUser } from "@/lib/auth-server";
 import { recordClassification, type Prediction } from "@/lib/classifications";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { fileTypeFromBuffer } from "file-type";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,21 +11,7 @@ export const dynamic = "force-dynamic";
 // ---- Configuration ---------------------------------------------------------
 const ACCEPTED_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
-const RATE_LIMIT = 12;
-const RATE_WINDOW_MS = 60_000;
 
-const buckets = new Map<string, { count: number; reset: number }>();
-function rateLimit(ip: string): boolean {
-  const now = Date.now();
-  const b = buckets.get(ip);
-  if (!b || now > b.reset) {
-    buckets.set(ip, { count: 1, reset: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (b.count >= RATE_LIMIT) return false;
-  b.count += 1;
-  return true;
-}
 function clientIp(req: Request): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
 }
@@ -71,8 +59,15 @@ function simulateInference(): Prediction[] {
 }
 
 export async function POST(req: Request) {
-  if (!rateLimit(clientIp(req))) {
-    return NextResponse.json({ error: "Rate limit exceeded." }, { status: 429, headers: { "Retry-After": "60" } });
+  const ip = clientIp(req);
+  const rateLimit = checkRateLimit(`classify:${ip}`, 30, 60 * 1000); // 30 req / 1 minute
+
+  if (!rateLimit.success) {
+    console.warn(`[SECURITY] Rate limit exceeded on classify for IP: ${ip}`);
+    return NextResponse.json(
+      { error: "Rate limit exceeded." },
+      { status: 429, headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() } }
+    );
   }
 
   const contentType = req.headers.get("content-type") ?? "";
@@ -91,11 +86,18 @@ export async function POST(req: Request) {
   if (!(clip instanceof File)) {
     return NextResponse.json({ error: "No clip provided." }, { status: 400 });
   }
-  if (!ACCEPTED_TYPES.has(clip.type)) {
-    return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
-  }
+  
   if (clip.size === 0 || clip.size > MAX_BYTES) {
     return NextResponse.json({ error: "File size out of bounds." }, { status: 413 });
+  }
+
+  // Read magic bytes using file-type
+  const buffer = await clip.arrayBuffer();
+  const fileType = await fileTypeFromBuffer(buffer);
+  
+  if (!fileType || !ACCEPTED_TYPES.has(fileType.mime)) {
+    console.warn(`[SECURITY] MIME spoofing or invalid file type detected from IP: ${ip}. FileType: ${fileType?.mime}`);
+    return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
   }
 
   // Real model server when configured; otherwise simulate. Falls back to
@@ -114,7 +116,9 @@ export async function POST(req: Request) {
     await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
     predictions = simulateInference();
   }
-  const safeName = clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80);
+  
+  // Randomize storage name and sanitize
+  const safeName = `${crypto.randomUUID()}-${clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
 
   // Persist for signed-in users; the public demo runs anonymously.
   const user = await getCurrentUser();
@@ -123,7 +127,7 @@ export async function POST(req: Request) {
       userId: user.id,
       filename: safeName,
       size: clip.size,
-      mime: clip.type,
+      mime: fileType.mime, // Use verified MIME
       predictions,
       source,
     });

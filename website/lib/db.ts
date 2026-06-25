@@ -88,6 +88,18 @@ function migrate(d: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_class_user ON classifications(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key TEXT PRIMARY KEY,
+      tokens INTEGER NOT NULL,
+      last_refill INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS account_lockouts (
+      email TEXT PRIMARY KEY,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // Idempotent column additions for databases created before a column existed.
