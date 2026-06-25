@@ -25,15 +25,20 @@ export async function POST(req: Request) {
   }
 
   // Rate Limiting: 5 requests / 10 minutes per IP/User pair
-  const rateLimitKey = `verify:${userId}:${ip}`;
-  const rateLimit = checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
+  const rateLimitKey = `ratelimit:verify:${userId}:${ip}`;
+  const rateLimit = await checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
   if (!rateLimit.success) {
     console.warn(`[SECURITY] Rate limit exceeded on verify for user ${userId} IP: ${ip}`);
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },
       {
         status: 429,
-        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+        headers: {
+          "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+          "X-RateLimit-Reset": rateLimit.reset.toString(),
+        },
       }
     );
   }

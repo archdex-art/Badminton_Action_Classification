@@ -1,7 +1,6 @@
-import "server-only";
-import { getDb } from "./db";
+import { redis } from "./redis";
 
-type RateLimitResult = {
+export type RateLimitResult = {
   success: boolean;
   limit: number;
   remaining: number;
@@ -9,64 +8,56 @@ type RateLimitResult = {
 };
 
 /**
- * Validates a rate limit using a Token Bucket algorithm backed by SQLite.
+ * Validates a rate limit using a Sliding Window algorithm backed by Redis.
  *
- * @param key Unique identifier (e.g., 'login:192.168.1.1')
- * @param maxTokens Maximum number of requests in the window
+ * @param key Unique identifier (e.g., 'ratelimit:login:192.168.1.1')
+ * @param limit Maximum number of requests in the window
  * @param windowMs Time window in milliseconds
  */
-export function checkRateLimit(key: string, maxTokens: number, windowMs: number): RateLimitResult {
-  const db = getDb();
+export async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
   const now = Date.now();
-
-  let row = db
-    .prepare("SELECT tokens, last_refill FROM rate_limits WHERE key = ?")
-    .get(key) as { tokens: number; last_refill: number } | undefined;
-
-    if (!row) {
-      db.prepare("INSERT INTO rate_limits (key, tokens, last_refill) VALUES (?, ?, ?)").run(
-        key,
-        maxTokens - 1,
-        now
-      );
-      return { success: true, limit: maxTokens, remaining: maxTokens - 1, reset: now + windowMs };
+  const windowStart = now - windowMs;
+  
+  // Atomic Sliding Window using Redis ZSET
+  const script = `
+    local key = KEYS[1]
+    local now = tonumber(ARGV[1])
+    local window_start = tonumber(ARGV[2])
+    local limit = tonumber(ARGV[3])
+    
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+    local count = redis.call('ZCARD', key)
+    
+    if count < limit then
+      redis.call('ZADD', key, now, now)
+      redis.call('PEXPIRE', key, tonumber(ARGV[4]))
+      return count + 1
+    end
+    
+    return -1
+  `;
+  
+  try {
+    const result = await redis.eval(script, [key], [now, windowStart, limit, windowMs]);
+    
+    if (result === -1) {
+      return {
+        success: false,
+        limit,
+        remaining: 0,
+        reset: now + windowMs,
+      };
     }
-
-    // Refill tokens based on time elapsed
-    const timePassed = now - row.last_refill;
-    const refillAmount = Math.floor((timePassed / windowMs) * maxTokens);
-
-    let newTokens = Math.min(maxTokens, row.tokens + refillAmount);
-    let newRefill = row.last_refill;
-
-    if (refillAmount > 0) {
-      newRefill = now;
-    }
-
-    let success = false;
-    if (newTokens > 0) {
-      success = true;
-      newTokens -= 1;
-    }
-
-    db.prepare("UPDATE rate_limits SET tokens = ?, last_refill = ? WHERE key = ?").run(
-      newTokens,
-      newRefill,
-      key
-    );
-
+    
     return {
-      success,
-      limit: maxTokens,
-      remaining: newTokens,
-      reset: newRefill + windowMs,
+      success: true,
+      limit,
+      remaining: limit - (result as number),
+      reset: now + windowMs,
     };
-}
-
-// Optionally, clean up expired entries periodically
-export function cleanupRateLimits() {
-  const db = getDb();
-  // An entry is fully refilled (and safe to delete) if now - last_refill > largest_window
-  // We'll use 1 hour (3600000ms) as a safe threshold since that's our largest window.
-  db.prepare("DELETE FROM rate_limits WHERE ? - last_refill > 3600000").run(Date.now());
+  } catch (error) {
+    console.error("[SECURITY] Redis rate limit error:", error);
+    // Fail open in case Redis is temporarily down, to not block legitimate users.
+    return { success: true, limit, remaining: 1, reset: now + windowMs };
+  }
 }

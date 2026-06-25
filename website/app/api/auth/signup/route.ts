@@ -20,14 +20,19 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
 
   // Rate Limiting: 3 requests / 1 hour per IP
-  const rateLimit = checkRateLimit(`signup:${ip}`, 3, 60 * 60 * 1000);
+  const rateLimit = await checkRateLimit(`ratelimit:signup:${ip}`, 3, 60 * 60 * 1000);
   if (!rateLimit.success) {
     console.warn(`[SECURITY] Rate limit exceeded on signup for IP: ${ip}`);
     return NextResponse.json(
       { error: "Too many signup attempts. Please try again later." },
       {
         status: 429,
-        headers: { "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString() },
+        headers: {
+          "Retry-After": Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+          "X-RateLimit-Reset": rateLimit.reset.toString(),
+        },
       }
     );
   }
