@@ -9,6 +9,10 @@ import { Footer } from "@/components/Footer";
 import { StickyCta } from "@/components/cta/StickyCta";
 import { ClosingCta } from "@/components/cta/ClosingCta";
 
+const AnimatedModelGraphs = dynamic(() =>
+  import("@/components/AnimatedModelGraphs").then((m) => m.AnimatedModelGraphs)
+);
+
 // Code-split below-the-fold, interaction-heavy sections.
 const SkeletonAnatomy = dynamic(() =>
   import("@/components/SkeletonAnatomy").then((m) => m.SkeletonAnatomy)
@@ -47,6 +51,7 @@ export default function HomePage() {
         <DataFlow />
         <ModelArchitecture />
         <ClassificationShowcase />
+        <AnimatedModelGraphs />
         <Metrics />
         <UseCases />
         <ResearchPaper />
