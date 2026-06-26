@@ -75,9 +75,28 @@ export function Demo() {
         throw new Error(data?.error ?? "Classification failed.");
       }
       
-      const data = (await classifyRes.json()) as { predictions: Prediction[] };
-      // In a real async setup this might return status="processing". For now, we assume predictions come back.
-      setResults(data.predictions);
+      const { jobId, predictions, status: initialStatus } = await classifyRes.json();
+      
+      if (initialStatus === "processing" && jobId) {
+        // Polling loop
+        let isDone = false;
+        while (!isDone) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const pollRes = await fetch(`/api/classify/${jobId}`);
+          if (!pollRes.ok) throw new Error("Failed to check job status.");
+          const pollData = await pollRes.json();
+          if (pollData.status === "complete") {
+            setResults(pollData.predictions);
+            isDone = true;
+          } else if (pollData.status === "error") {
+            throw new Error("Analysis failed during background processing.");
+          }
+        }
+      } else {
+        // Synchronous fallback
+        setResults(predictions);
+      }
+      
       setStatus("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");

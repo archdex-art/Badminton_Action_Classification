@@ -106,58 +106,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
   }
 
-  // To run classification, we must download from S3 and pass to the model server.
-  // In Phase 3, this will be pushed to the queue.
-  let clipFile: File;
-  try {
-    const { s3Client, S3_BUCKET } = require("@/lib/s3");
-    const { GetObjectCommand } = require("@aws-sdk/client-s3");
-    
-    const command = new GetObjectCommand({ Bucket: S3_BUCKET, Key: key });
-    const response = await s3Client.send(command);
-    if (!response.Body) throw new Error("No body in S3 response");
-    
-    const arrayBuffer = await response.Body.transformToByteArray();
-    clipFile = new File([arrayBuffer], filename, { type: mime });
-  } catch (err) {
-    console.error("Failed to download from S3:", err);
-    return NextResponse.json({ error: "Failed to read file from storage." }, { status: 500 });
-  }
+  // Instead of processing synchronously, we enqueue it.
+  const { enqueueClassification } = require("@/lib/classifications");
+  const { classificationQueue } = require("@/lib/queue");
 
-  // Real model server when configured; otherwise simulate. Falls back to
-  // simulation if the model server is unreachable so the app stays usable.
-  let predictions: Prediction[] | null = null;
-  let source = "simulated";
-  if (process.env.MODEL_SERVER_URL) {
-    try {
-      predictions = await classifyWithModel(clipFile);
-      source = "model";
-    } catch (e) {
-      console.error("[classify] model server failed, falling back to simulation:", e);
-    }
-  }
-  if (!predictions) {
-    await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
-    predictions = simulateInference();
-  }
-  
   // Randomize storage name and sanitize
   const safeName = `${crypto.randomUUID()}-${filename.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
 
-  // Persist for signed-in users; the public demo runs runs anonymously.
+  let classificationId = "guest-" + Date.now();
   if (user) {
-    recordClassification({
+    const ids = enqueueClassification({
       userId: user.id,
       filename: safeName,
-      size: size,
-      mime: mime, // Use verified MIME from request
-      predictions,
-      source,
+      size,
+      mime
     });
-    return NextResponse.json({ predictions, persisted: true, source }, { headers: { "Cache-Control": "no-store" } });
+    classificationId = ids.classificationId;
   }
 
-  return NextResponse.json({ predictions, source }, { headers: { "Cache-Control": "no-store" } });
+  // Enqueue job to BullMQ
+  await classificationQueue.add("classify-video", {
+    classificationId,
+    key, // S3 key
+    filename: safeName,
+    mime,
+    isGuest: !user
+  });
+
+  return NextResponse.json({ 
+    jobId: classificationId,
+    status: "processing" 
+  }, { status: 202 });
 }
 
 export async function GET() {

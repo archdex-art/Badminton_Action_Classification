@@ -66,8 +66,29 @@ export function VideoUploader() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? "Classification failed.");
       }
-      const data = (await res.json()) as { predictions: Prediction[] };
-      setResults(data.predictions);
+      
+      const { jobId, predictions, status: initialStatus } = await res.json();
+      
+      if (initialStatus === "processing" && jobId) {
+        // Polling loop
+        let isDone = false;
+        while (!isDone) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const pollRes = await fetch(`/api/classify/${jobId}`);
+          if (!pollRes.ok) throw new Error("Failed to check job status.");
+          const pollData = await pollRes.json();
+          if (pollData.status === "complete") {
+            setResults(pollData.predictions);
+            isDone = true;
+          } else if (pollData.status === "error") {
+            throw new Error("Analysis failed during background processing.");
+          }
+        }
+      } else {
+        // Synchronous fallback
+        setResults(predictions);
+      }
+      
       setStatus("done");
       // Refresh the server-rendered "Your videos" / dashboard lists.
       router.refresh();
