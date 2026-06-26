@@ -56,6 +56,58 @@ export function recordClassification(opts: {
   };
 }
 
+export function enqueueClassification(opts: {
+  userId: string;
+  filename: string;
+  size: number;
+  mime: string;
+}): { videoId: string; classificationId: string } {
+  const db = getDb();
+  const now = Date.now();
+  const videoId = newId("vid");
+
+  db.prepare(
+    "INSERT INTO videos (id, user_id, filename, size, mime, status, created_at) VALUES (?,?,?,?,?,'processing',?)"
+  ).run(videoId, opts.userId, opts.filename, opts.size, opts.mime, now);
+
+  const id = newId("cls");
+  db.prepare(
+    `INSERT INTO classifications (id, user_id, video_id, clip, predicted, confidence, probabilities, status, source, created_at)
+     VALUES (?,?,?,?,'',0,'[]','processing','',?)`
+  ).run(id, opts.userId, videoId, opts.filename, now);
+  
+  return { videoId, classificationId: id };
+}
+
+export function updateClassification(id: string, opts: {
+  predictions: Prediction[];
+  source: string;
+  status?: string;
+}) {
+  const db = getDb();
+  const top = opts.predictions[0] || { action: "unknown", confidence: 0 };
+  
+  db.prepare(
+    `UPDATE classifications 
+     SET predicted = ?, confidence = ?, probabilities = ?, status = ?, source = ?
+     WHERE id = ?`
+  ).run(
+    top.action,
+    top.confidence,
+    JSON.stringify(opts.predictions),
+    opts.status || "complete",
+    opts.source,
+    id
+  );
+  
+  // also update video status
+  const row = db.prepare("SELECT video_id as videoId FROM classifications WHERE id = ?").get(id) as { videoId: string } | undefined;
+  if (row?.videoId) {
+    db.prepare("UPDATE videos SET status = ? WHERE id = ?").run(opts.status || "complete", row.videoId);
+  }
+}
+
+
 export function listClassifications(userId: string, limit = 100): ClassificationRow[] {
   return getDb()
     .prepare(

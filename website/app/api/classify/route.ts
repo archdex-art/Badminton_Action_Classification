@@ -81,69 +81,62 @@ export async function POST(req: Request) {
   }
 
   const contentType = req.headers.get("content-type") ?? "";
-  if (!contentType.includes("multipart/form-data")) {
-    return NextResponse.json({ error: "Expected multipart/form-data." }, { status: 415 });
+  if (!contentType.includes("application/json")) {
+    return NextResponse.json({ error: "Expected application/json." }, { status: 415 });
   }
 
-  let form: FormData;
+  let body;
   try {
-    form = await req.formData();
+    body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Malformed upload." }, { status: 400 });
+    return NextResponse.json({ error: "Malformed JSON." }, { status: 400 });
   }
 
-  const clip = form.get("clip");
-  if (!(clip instanceof File)) {
-    return NextResponse.json({ error: "No clip provided." }, { status: 400 });
+  const { key, filename, size, mime } = body;
+  if (!key || !filename || size == null || !mime) {
+    return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
-  
-  if (clip.size === 0 || clip.size > MAX_BYTES) {
+
+  if (size === 0 || size > MAX_BYTES) {
     return NextResponse.json({ error: "File size out of bounds." }, { status: 413 });
   }
 
-  // Read magic bytes using file-type
-  const buffer = await clip.arrayBuffer();
-  const fileType = await fileTypeFromBuffer(buffer);
-  
-  if (!fileType || !ACCEPTED_TYPES.has(fileType.mime)) {
-    console.warn(`[SECURITY] MIME spoofing or invalid file type detected from IP: ${ip}. FileType: ${fileType?.mime}`);
+  if (!ACCEPTED_TYPES.has(mime)) {
+    console.warn(`[SECURITY] Invalid MIME type detected from IP: ${ip}. MIME: ${mime}`);
     return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
   }
 
-  // Real model server when configured; otherwise simulate. Falls back to
-  // simulation if the model server is unreachable so the app stays usable.
-  let predictions: Prediction[] | null = null;
-  let source = "simulated";
-  if (process.env.MODEL_SERVER_URL) {
-    try {
-      predictions = await classifyWithModel(clip);
-      source = "model";
-    } catch (e) {
-      console.error("[classify] model server failed, falling back to simulation:", e);
-    }
-  }
-  if (!predictions) {
-    await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
-    predictions = simulateInference();
-  }
-  
-  // Randomize storage name and sanitize
-  const safeName = `${crypto.randomUUID()}-${clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
+  // Instead of processing synchronously, we enqueue it.
+  const { enqueueClassification } = require("@/lib/classifications");
+  const { classificationQueue } = require("@/lib/queue");
 
-  // Persist for signed-in users; the public demo runs anonymously.
+  // Randomize storage name and sanitize
+  const safeName = `${crypto.randomUUID()}-${filename.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
+
+  let classificationId = "guest-" + Date.now();
   if (user) {
-    recordClassification({
+    const ids = enqueueClassification({
       userId: user.id,
       filename: safeName,
-      size: clip.size,
-      mime: fileType.mime, // Use verified MIME
-      predictions,
-      source,
+      size,
+      mime
     });
-    return NextResponse.json({ predictions, persisted: true, source }, { headers: { "Cache-Control": "no-store" } });
+    classificationId = ids.classificationId;
   }
 
-  return NextResponse.json({ predictions, source }, { headers: { "Cache-Control": "no-store" } });
+  // Enqueue job to BullMQ
+  await classificationQueue.add("classify-video", {
+    classificationId,
+    key, // S3 key
+    filename: safeName,
+    mime,
+    isGuest: !user
+  });
+
+  return NextResponse.json({ 
+    jobId: classificationId,
+    status: "processing" 
+  }, { status: 202 });
 }
 
 export async function GET() {
