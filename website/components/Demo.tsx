@@ -43,18 +43,40 @@ export function Demo() {
 
     try {
       setStatus("uploading");
-      const form = new FormData();
-      form.append("clip", file);
-      // Brief perceptible upload phase for UX.
-      await new Promise((r) => setTimeout(r, 600));
+      
+      // 1. Get presigned URL
+      const presignRes = await fetch("/api/upload/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+      });
+      if (!presignRes.ok) throw new Error("Failed to get upload URL");
+      const { url, key } = await presignRes.json();
+
+      // 2. Upload directly to MinIO/S3
+      const uploadRes = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload video to storage");
+
       setStatus("analyzing");
 
-      const res = await fetch("/api/classify", { method: "POST", body: form });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+      // 3. Start classification
+      const classifyRes = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, filename: file.name, size: file.size, mime: file.type }),
+      });
+
+      if (!classifyRes.ok) {
+        const data = await classifyRes.json().catch(() => ({}));
         throw new Error(data?.error ?? "Classification failed.");
       }
-      const data = (await res.json()) as { predictions: Prediction[] };
+      
+      const data = (await classifyRes.json()) as { predictions: Prediction[] };
+      // In a real async setup this might return status="processing". For now, we assume predictions come back.
       setResults(data.predictions);
       setStatus("done");
     } catch (e) {

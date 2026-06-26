@@ -81,33 +81,47 @@ export async function POST(req: Request) {
   }
 
   const contentType = req.headers.get("content-type") ?? "";
-  if (!contentType.includes("multipart/form-data")) {
-    return NextResponse.json({ error: "Expected multipart/form-data." }, { status: 415 });
+  if (!contentType.includes("application/json")) {
+    return NextResponse.json({ error: "Expected application/json." }, { status: 415 });
   }
 
-  let form: FormData;
+  let body;
   try {
-    form = await req.formData();
+    body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Malformed upload." }, { status: 400 });
+    return NextResponse.json({ error: "Malformed JSON." }, { status: 400 });
   }
 
-  const clip = form.get("clip");
-  if (!(clip instanceof File)) {
-    return NextResponse.json({ error: "No clip provided." }, { status: 400 });
+  const { key, filename, size, mime } = body;
+  if (!key || !filename || size == null || !mime) {
+    return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
-  
-  if (clip.size === 0 || clip.size > MAX_BYTES) {
+
+  if (size === 0 || size > MAX_BYTES) {
     return NextResponse.json({ error: "File size out of bounds." }, { status: 413 });
   }
 
-  // Read magic bytes using file-type
-  const buffer = await clip.arrayBuffer();
-  const fileType = await fileTypeFromBuffer(buffer);
-  
-  if (!fileType || !ACCEPTED_TYPES.has(fileType.mime)) {
-    console.warn(`[SECURITY] MIME spoofing or invalid file type detected from IP: ${ip}. FileType: ${fileType?.mime}`);
+  if (!ACCEPTED_TYPES.has(mime)) {
+    console.warn(`[SECURITY] Invalid MIME type detected from IP: ${ip}. MIME: ${mime}`);
     return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
+  }
+
+  // To run classification, we must download from S3 and pass to the model server.
+  // In Phase 3, this will be pushed to the queue.
+  let clipFile: File;
+  try {
+    const { s3Client, S3_BUCKET } = require("@/lib/s3");
+    const { GetObjectCommand } = require("@aws-sdk/client-s3");
+    
+    const command = new GetObjectCommand({ Bucket: S3_BUCKET, Key: key });
+    const response = await s3Client.send(command);
+    if (!response.Body) throw new Error("No body in S3 response");
+    
+    const arrayBuffer = await response.Body.transformToByteArray();
+    clipFile = new File([arrayBuffer], filename, { type: mime });
+  } catch (err) {
+    console.error("Failed to download from S3:", err);
+    return NextResponse.json({ error: "Failed to read file from storage." }, { status: 500 });
   }
 
   // Real model server when configured; otherwise simulate. Falls back to
@@ -116,7 +130,7 @@ export async function POST(req: Request) {
   let source = "simulated";
   if (process.env.MODEL_SERVER_URL) {
     try {
-      predictions = await classifyWithModel(clip);
+      predictions = await classifyWithModel(clipFile);
       source = "model";
     } catch (e) {
       console.error("[classify] model server failed, falling back to simulation:", e);
@@ -128,15 +142,15 @@ export async function POST(req: Request) {
   }
   
   // Randomize storage name and sanitize
-  const safeName = `${crypto.randomUUID()}-${clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
+  const safeName = `${crypto.randomUUID()}-${filename.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
 
-  // Persist for signed-in users; the public demo runs anonymously.
+  // Persist for signed-in users; the public demo runs runs anonymously.
   if (user) {
     recordClassification({
       userId: user.id,
       filename: safeName,
-      size: clip.size,
-      mime: fileType.mime, // Use verified MIME
+      size: size,
+      mime: mime, // Use verified MIME from request
       predictions,
       source,
     });
