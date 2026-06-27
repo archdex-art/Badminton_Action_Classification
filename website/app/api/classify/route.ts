@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { ACTIONS } from "@/lib/data";
 import { getCurrentUser } from "@/lib/auth-server";
-import { recordClassification, type Prediction } from "@/lib/classifications";
+import { enqueueClassification, updateClassification, type Prediction } from "@/lib/classifications";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { fileTypeFromBuffer } from "file-type";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,70 +79,75 @@ export async function POST(req: Request) {
     );
   }
 
-  const contentType = req.headers.get("content-type") ?? "";
-  if (!contentType.includes("multipart/form-data")) {
-    return NextResponse.json({ error: "Expected multipart/form-data." }, { status: 415 });
+  const formData = await req.formData().catch(() => null);
+  if (!formData) {
+    return NextResponse.json({ error: "Malformed FormData." }, { status: 400 });
   }
 
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json({ error: "Malformed upload." }, { status: 400 });
+  const file = formData.get("file") as File | null;
+  if (!file) {
+    return NextResponse.json({ error: "Missing required file field." }, { status: 400 });
   }
 
-  const clip = form.get("clip");
-  if (!(clip instanceof File)) {
-    return NextResponse.json({ error: "No clip provided." }, { status: 400 });
-  }
-  
-  if (clip.size === 0 || clip.size > MAX_BYTES) {
+  if (file.size === 0 || file.size > MAX_BYTES) {
     return NextResponse.json({ error: "File size out of bounds." }, { status: 413 });
   }
 
-  // Read magic bytes using file-type
-  const buffer = await clip.arrayBuffer();
-  const fileType = await fileTypeFromBuffer(buffer);
-  
-  if (!fileType || !ACCEPTED_TYPES.has(fileType.mime)) {
-    console.warn(`[SECURITY] MIME spoofing or invalid file type detected from IP: ${ip}. FileType: ${fileType?.mime}`);
+  if (!ACCEPTED_TYPES.has(file.type)) {
+    console.warn(`[SECURITY] Invalid MIME type detected from IP: ${ip}. MIME: ${file.type}`);
     return NextResponse.json({ error: "Unsupported media type." }, { status: 415 });
   }
 
-  // Real model server when configured; otherwise simulate. Falls back to
-  // simulation if the model server is unreachable so the app stays usable.
-  let predictions: Prediction[] | null = null;
-  let source = "simulated";
-  if (process.env.MODEL_SERVER_URL) {
-    try {
-      predictions = await classifyWithModel(clip);
-      source = "model";
-    } catch (e) {
-      console.error("[classify] model server failed, falling back to simulation:", e);
-    }
-  }
-  if (!predictions) {
-    await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
-    predictions = simulateInference();
-  }
-  
   // Randomize storage name and sanitize
-  const safeName = `${crypto.randomUUID()}-${clip.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
+  const safeName = `${crypto.randomUUID()}-${file.name.replace(/[^\w.\- ]+/g, "_").slice(0, 80)}`;
 
-  // Persist for signed-in users; the public demo runs anonymously.
+  let classificationId = "guest-" + Date.now();
   if (user) {
-    recordClassification({
+    const ids = enqueueClassification({
       userId: user.id,
       filename: safeName,
-      size: clip.size,
-      mime: fileType.mime, // Use verified MIME
-      predictions,
-      source,
+      size: file.size,
+      mime: file.type
     });
-    return NextResponse.json({ predictions, persisted: true, source }, { headers: { "Cache-Control": "no-store" } });
+    classificationId = ids.classificationId;
   }
 
-  return NextResponse.json({ predictions, source }, { headers: { "Cache-Control": "no-store" } });
+  try {
+    let predictions: Prediction[];
+    try {
+      predictions = await classifyWithModel(file);
+    } catch (err) {
+      console.warn("Failed to reach model server, simulating inference.", err);
+      predictions = simulateInference();
+      // Add artificial delay to simulate processing time
+      await new Promise(resolve => setTimeout(resolve, 2500));
+    }
+
+    if (user) {
+      updateClassification(classificationId, {
+        predictions,
+        source: "model",
+        status: "complete"
+      });
+    }
+
+    return NextResponse.json({ 
+      jobId: classificationId,
+      status: "complete",
+      predictions 
+    }, { status: 200 });
+
+  } catch (error: any) {
+    console.error("[CLASSIFY ERROR]", error);
+    if (user) {
+      updateClassification(classificationId, {
+        predictions: [],
+        source: "error",
+        status: "error"
+      });
+    }
+    return NextResponse.json({ error: "Classification failed." }, { status: 500 });
+  }
 }
 
 export async function GET() {

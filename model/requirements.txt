@@ -6,8 +6,7 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.0
 attrs==26.1.0
-# Editable install with no version control (badminton-action==0.1.0)
--e /Users/archdex/Desktop/Action_classification
+
 blinker==1.9.0
 cachetools==7.1.4
 certifi==2026.6.17

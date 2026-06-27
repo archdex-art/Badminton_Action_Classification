@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  createCode,
   createSession,
-  createVerificationCode,
   findUserByEmail,
   setPending,
   setTwofaPending,
@@ -11,9 +9,10 @@ import {
   recordFailedLogin,
   clearFailedLogin,
 } from "@/lib/auth-server";
-import { sendTwoFactorEmail, sendVerificationEmail, devCodeExposable } from "@/lib/mailer";
+import { sendTwoFactorEmail, sendVerificationEmail, devLinkExposable } from "@/lib/mailer";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { loginSchema } from "@/lib/validations";
+import { signMagicToken } from "@/lib/jwt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,26 +78,32 @@ export async function POST(req: Request) {
   // Clear failed login attempts upon successful credential verification
   await clearFailedLogin(lowerEmail);
 
-  // Unverified accounts get bounced to verification with a fresh code.
+  const appUrl = process.env.NODE_ENV === "development" ? new URL(req.url).origin : (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin);
+
+  // Unverified accounts get bounced to verification with a fresh link.
   if (!user.email_verified) {
     await setPending(user.id);
-    const code = createVerificationCode(user.id);
-    await sendVerificationEmail(user.email, user.name, code);
+    const token = signMagicToken({ userId: user.id, email: user.email, purpose: "verify" });
+    const link = new URL(`/api/auth/magic?token=${token}`, appUrl).toString();
+    
+    await sendVerificationEmail(user.email, user.name, link);
     return NextResponse.json(
-      { error: "verify", devCode: devCodeExposable() ? code : undefined },
+      { error: "verify", devLink: devLinkExposable() ? link : undefined },
       { status: 403 }
     );
   }
 
-  // Email 2FA: if enabled, require an emailed code before issuing a session.
+  // Email 2FA: if enabled, require an emailed link before issuing a session.
   if (user.twofa_enabled) {
     await setTwofaPending(user.id);
-    const code = createCode(user.id, "2fa");
-    await sendTwoFactorEmail(user.email, user.name, code);
+    const token = signMagicToken({ userId: user.id, email: user.email, purpose: "2fa" });
+    const link = new URL(`/api/auth/magic?token=${token}`, appUrl).toString();
+
+    await sendTwoFactorEmail(user.email, user.name, link);
     return NextResponse.json({
       twofa: true,
       email: user.email,
-      devCode: devCodeExposable() ? code : undefined,
+      devLink: devLinkExposable() ? link : undefined,
     });
   }
 

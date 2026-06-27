@@ -1,103 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ROUTES } from "@/lib/auth";
 
-// Email verification step. The 6-digit code is validated against the backend
-// (a real token stored in the database, expiring in 15 minutes).
 export default function VerifyPage() {
   const router = useRouter();
   const [email, setEmail] = useState("your inbox");
-  const [devCode, setDevCode] = useState<string | null>(null);
-  const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
+  const [devLink, setDevLink] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     try {
       const e = sessionStorage.getItem("sc_pending_email");
       if (e) setEmail(e);
-      const c = sessionStorage.getItem("sc_dev_code");
-      if (c) {
-        setDevCode(c);
-        setDigits(c.split("").slice(0, 6));
+      const link = sessionStorage.getItem("sc_dev_link");
+      if (link) {
+        setDevLink(link);
       }
     } catch {
       /* noop */
     }
-    refs.current[0]?.focus();
   }, []);
-
-  const code = digits.join("");
-  const complete = code.length === 6;
-
-  function setAt(i: number, v: string) {
-    const clean = v.replace(/\D/g, "").slice(-1);
-    setDigits((d) => {
-      const next = [...d];
-      next[i] = clean;
-      return next;
-    });
-    if (clean && i < 5) refs.current[i + 1]?.focus();
-  }
-
-  function onKey(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && !digits[i] && i > 0) refs.current[i - 1]?.focus();
-  }
-
-  function onPaste(e: React.ClipboardEvent) {
-    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (text) {
-      e.preventDefault();
-      setDigits(text.padEnd(6, "").split("").slice(0, 6).map((c) => c || ""));
-      refs.current[Math.min(text.length, 5)]?.focus();
-    }
-  }
-
-  async function verify() {
-    if (!complete) return;
-    setPending(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/verify", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error === "verify" ? "Invalid or expired code." : data.error ?? "Verification failed.");
-        setPending(false);
-        return;
-      }
-      try {
-        sessionStorage.removeItem("sc_pending_email");
-        sessionStorage.removeItem("sc_dev_code");
-      } catch {}
-      router.push(ROUTES.app);
-    } catch {
-      setError("Network error. Please try again.");
-      setPending(false);
-    }
-  }
 
   async function resend() {
     setError(null);
+    setPending(true);
     try {
       const res = await fetch("/api/auth/resend", { method: "POST" });
       const data = await res.json();
-      if (data.devCode) {
-        setDevCode(data.devCode);
-        setDigits(String(data.devCode).split("").slice(0, 6));
+      if (data.devLink) {
+        setDevLink(data.devLink);
         try {
-          sessionStorage.setItem("sc_dev_code", data.devCode);
+          sessionStorage.setItem("sc_dev_link", data.devLink);
         } catch {}
       }
     } catch {
-      /* ignore */
+      setError("Failed to resend. Please try again.");
+    } finally {
+      setPending(false);
     }
   }
 
@@ -110,37 +52,26 @@ export default function VerifyPage() {
         </svg>
       </span>
       <h1 className="mt-6 font-display text-2xl font-semibold tracking-tight text-ink">
-        Verify your email
+        Check your email
       </h1>
       <p className="mt-2 text-sm text-muted">
-        We sent a 6-digit code to <span className="font-medium text-ink">{email}</span>.
+        We sent a magic link to <span className="font-medium text-ink">{email}</span>. Click the link to verify your account.
       </p>
 
-      {devCode && (
-        <p className="mx-auto mt-4 inline-flex items-center gap-2 rounded-lg bg-elevated px-3 py-1.5 text-xs text-muted">
-          <span className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide">dev</span>
-          No email server configured — your code is{" "}
-          <span className="font-mono font-semibold text-ink">{devCode}</span>
-        </p>
+      {devLink && (
+        <div className="mt-6 rounded-lg bg-elevated p-4 text-left border border-line">
+          <p className="inline-flex items-center gap-2 text-xs text-muted mb-2">
+            <span className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide">dev</span>
+            No email server configured
+          </p>
+          <a
+            href={devLink}
+            className="block break-all font-mono text-sm font-semibold text-accent hover:underline"
+          >
+            {devLink}
+          </a>
+        </div>
       )}
-
-      <div className="mt-8 flex justify-center gap-2" onPaste={onPaste}>
-        {digits.map((d, i) => (
-          <input
-            key={i}
-            ref={(el) => {
-              refs.current[i] = el;
-            }}
-            inputMode="numeric"
-            maxLength={1}
-            value={d}
-            onChange={(e) => setAt(i, e.target.value)}
-            onKeyDown={(e) => onKey(i, e)}
-            aria-label={`Digit ${i + 1}`}
-            className="h-12 w-11 rounded-xl border bg-surface text-center font-mono text-lg text-ink outline-none transition-colors focus:border-accent"
-          />
-        ))}
-      </div>
 
       {error && (
         <p className="mt-4 text-sm text-red-500" role="alert">
@@ -148,28 +79,19 @@ export default function VerifyPage() {
         </p>
       )}
 
-      <motion.button
-        type="button"
-        onClick={verify}
-        disabled={!complete || pending}
-        whileTap={{ scale: 0.98 }}
-        className="mt-6 flex h-11 w-full items-center justify-center rounded-xl bg-ink text-sm font-semibold text-canvas transition-opacity disabled:opacity-50"
-      >
-        {pending ? (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-canvas/40 border-t-canvas" />
-        ) : (
-          "Verify & continue"
-        )}
-      </motion.button>
+      <p className="mt-8 text-sm text-muted">
+        You can safely close this window once you click the link.
+      </p>
 
       <p className="mt-5 text-sm text-muted">
         Didn&apos;t get it?{" "}
         <button
           type="button"
           onClick={resend}
-          className="font-medium text-ink underline-offset-4 hover:underline"
+          disabled={pending}
+          className="font-medium text-ink underline-offset-4 hover:underline disabled:opacity-50"
         >
-          Resend code
+          {pending ? "Sending..." : "Resend email"}
         </button>
       </p>
     </div>

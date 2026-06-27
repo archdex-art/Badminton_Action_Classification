@@ -1,4 +1,3 @@
-import "server-only";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -40,15 +39,7 @@ function migrate(d: DatabaseSync) {
       expires_at  INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS email_tokens (
-      id          TEXT PRIMARY KEY,
-      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      code        TEXT NOT NULL,
-      purpose     TEXT NOT NULL DEFAULT 'verify',
-      expires_at  INTEGER NOT NULL,
-      consumed    INTEGER NOT NULL DEFAULT 0,
-      created_at  INTEGER NOT NULL
-    );
+
 
     CREATE TABLE IF NOT EXISTS videos (
       id          TEXT PRIMARY KEY,

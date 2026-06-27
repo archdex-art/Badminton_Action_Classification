@@ -11,7 +11,7 @@ export const TWOFA_COOKIE = "sc_2fa"; // user mid-login awaiting 2FA code
 const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days (seconds)
 const CODE_TTL = 15 * 60 * 1000; // 15 minutes (ms)
 
-export type CodePurpose = "verify" | "2fa";
+
 
 export type User = {
   id: string;
@@ -76,32 +76,7 @@ export function setTwoFactor(userId: string, enabled: boolean) {
   getDb().prepare("UPDATE users SET twofa_enabled = ? WHERE id = ?").run(enabled ? 1 : 0, userId);
 }
 
-// ── Email codes (purpose: 'verify' for signup, '2fa' for login) ──────────────
-export function createCode(userId: string, purpose: CodePurpose = "verify"): string {
-  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  getDb()
-    .prepare(
-      "INSERT INTO email_tokens (id, user_id, code, purpose, expires_at, consumed, created_at) VALUES (?,?,?,?,?,0,?)",
-    )
-    .run(newId("tok"), userId, code, purpose, Date.now() + CODE_TTL, Date.now());
-  return code;
-}
 
-export function consumeCode(userId: string, code: string, purpose: CodePurpose = "verify"): boolean {
-  const row = getDb()
-    .prepare(
-      "SELECT id FROM email_tokens WHERE user_id = ? AND code = ? AND purpose = ? AND consumed = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
-    )
-    .get(userId, code, purpose, Date.now()) as { id: string } | undefined;
-  if (!row) return false;
-  getDb().prepare("UPDATE email_tokens SET consumed = 1 WHERE id = ?").run(row.id);
-  return true;
-}
-
-// Backwards-compatible aliases used by the signup verification flow.
-export const createVerificationCode = (userId: string) => createCode(userId, "verify");
-export const consumeVerificationCode = (userId: string, code: string) =>
-  consumeCode(userId, code, "verify");
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 export async function createSession(userId: string) {

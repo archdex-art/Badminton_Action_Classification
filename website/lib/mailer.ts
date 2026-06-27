@@ -32,62 +32,62 @@ function getTransport(): nodemailer.Transporter {
   return transporter;
 }
 
-function logToOutbox(to: string, subject: string, code: string) {
+function logToOutbox(to: string, subject: string, link: string) {
   try {
     const dir = path.join(process.cwd(), "data");
     mkdirSync(dir, { recursive: true });
     appendFileSync(
       path.join(dir, "outbox.log"),
-      `[${new Date().toISOString()}] to=${to} subject="${subject}" code=${code}\n`,
+      `[${new Date().toISOString()}] to=${to} subject="${subject}" link=${link}\n`,
     );
   } catch {
     /* best effort */
   }
 }
 
-export async function sendVerificationEmail(to: string, name: string, code: string) {
+export async function sendVerificationEmail(to: string, name: string, link: string) {
   const subject = "Verify your SkeletonCourt email";
-  const text = `Hi ${name},\n\nYour SkeletonCourt verification code is: ${code}\n\nIt expires in 15 minutes.\n\n— SkeletonCourt`;
+  const text = `Hi ${name},\n\nPlease verify your email by clicking the following link:\n\n${link}\n\nIt expires in 15 minutes.\n\n— SkeletonCourt`;
   const html = `
     <div style="font-family:Inter,system-ui,sans-serif;max-width:480px;margin:auto;padding:24px">
       <h2 style="color:#0F172A;margin:0 0 8px">Verify your email</h2>
-      <p style="color:#64748B;margin:0 0 20px">Hi ${name}, enter this code to finish creating your SkeletonCourt account.</p>
-      <div style="font-size:32px;font-weight:700;letter-spacing:8px;color:#283593;background:#eef0fb;border-radius:12px;padding:16px;text-align:center">${code}</div>
-      <p style="color:#94a3b8;font-size:12px;margin:20px 0 0">This code expires in 15 minutes. If you didn't request it, ignore this email.</p>
+      <p style="color:#64748B;margin:0 0 20px">Hi ${name}, click the link below to finish creating your SkeletonCourt account.</p>
+      <a href="${link}" style="display:inline-block;color:#ffffff;background:#283593;border-radius:8px;padding:12px 24px;text-decoration:none;font-weight:600">Verify Email</a>
+      <p style="color:#94a3b8;font-size:12px;margin:20px 0 0">This link expires in 15 minutes. If you didn't request it, ignore this email.</p>
     </div>`;
 
   // Always record to the outbox log (handy in dev; harmless in prod).
-  logToOutbox(to, subject, code);
+  logToOutbox(to, subject, link);
 
   if (smtpConfigured()) {
     await getTransport().sendMail({ from: FROM, to, subject, text, html });
   } else {
     // Dev: surface the message in the server console.
-    console.log(`\n📧 [dev mail] to=${to}  code=${code}\n`);
+    console.log(`\n📧 [dev mail] to=${to}  link=${link}\n`);
   }
 }
 
-export async function sendTwoFactorEmail(to: string, name: string, code: string) {
-  const subject = "Your SkeletonCourt sign-in code";
-  const text = `Hi ${name},\n\nYour SkeletonCourt sign-in code is: ${code}\n\nIt expires in 15 minutes. If you didn't try to sign in, change your password.\n\n— SkeletonCourt`;
+export async function sendTwoFactorEmail(to: string, name: string, link: string) {
+  const subject = "Your SkeletonCourt sign-in link";
+  const text = `Hi ${name},\n\nClick the following link to finish signing in to SkeletonCourt:\n\n${link}\n\nIt expires in 15 minutes. If you didn't try to sign in, change your password.\n\n— SkeletonCourt`;
   const html = `
     <div style="font-family:Inter,system-ui,sans-serif;max-width:480px;margin:auto;padding:24px">
       <h2 style="color:#0F172A;margin:0 0 8px">Sign-in verification</h2>
-      <p style="color:#64748B;margin:0 0 20px">Hi ${name}, enter this code to finish signing in to SkeletonCourt.</p>
-      <div style="font-size:32px;font-weight:700;letter-spacing:8px;color:#283593;background:#eef0fb;border-radius:12px;padding:16px;text-align:center">${code}</div>
-      <p style="color:#94a3b8;font-size:12px;margin:20px 0 0">This code expires in 15 minutes. If this wasn't you, change your password.</p>
+      <p style="color:#64748B;margin:0 0 20px">Hi ${name}, click the link below to finish signing in to SkeletonCourt.</p>
+      <a href="${link}" style="display:inline-block;color:#ffffff;background:#283593;border-radius:8px;padding:12px 24px;text-decoration:none;font-weight:600">Sign In</a>
+      <p style="color:#94a3b8;font-size:12px;margin:20px 0 0">This link expires in 15 minutes. If this wasn't you, change your password.</p>
     </div>`;
 
-  logToOutbox(to, subject, code);
+  logToOutbox(to, subject, link);
   if (smtpConfigured()) {
     await getTransport().sendMail({ from: FROM, to, subject, text, html });
   } else {
-    console.log(`\n🔐 [dev mail] 2FA to=${to}  code=${code}\n`);
+    console.log(`\n🔐 [dev mail] 2FA to=${to}  link=${link}\n`);
   }
 }
 
-// In non-production we expose the code to the client so the flow is testable
+// In non-production we expose the link to the client so the flow is testable
 // without a configured SMTP server. Never do this in production.
-export function devCodeExposable() {
+export function devLinkExposable() {
   return process.env.NODE_ENV !== "production" && !smtpConfigured();
 }

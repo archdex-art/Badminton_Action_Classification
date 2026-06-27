@@ -11,7 +11,7 @@ set -euo pipefail
 
 # ---- paths ------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ML_PROJECT="/Users/archdex/Desktop/Badminton_Action_Classification/model"
+ML_PROJECT="$(cd "$SCRIPT_DIR/../model" && pwd)"
 VENV="${ML_PROJECT}/.venv/bin"
 MODEL="${ML_PROJECT}/model.pt"
 

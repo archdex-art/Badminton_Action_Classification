@@ -52,7 +52,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         }
         try {
           sessionStorage.setItem("sc_pending_email", email);
-          if (data.devCode) sessionStorage.setItem("sc_dev_code", data.devCode);
+          if (data.devLink) sessionStorage.setItem("sc_dev_link", data.devLink);
         } catch {}
         router.push(ROUTES.verify);
       } else {
@@ -63,9 +63,9 @@ export function AuthForm({ mode }: { mode: Mode }) {
         });
         const data = await res.json();
         if (res.status === 403 && data.error === "verify") {
-          if (data.devCode) {
+          if (data.devLink) {
             try {
-              sessionStorage.setItem("sc_dev_code", data.devCode);
+              sessionStorage.setItem("sc_dev_link", data.devLink);
             } catch {}
           }
           router.push(ROUTES.verify);
@@ -75,7 +75,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           // Email 2FA: stash hints and go to the code step (no session yet).
           try {
             sessionStorage.setItem("sc_2fa_email", data.email ?? email);
-            if (data.devCode) sessionStorage.setItem("sc_dev_code", data.devCode);
+            if (data.devLink) sessionStorage.setItem("sc_dev_link", data.devLink);
           } catch {}
           router.push("/auth/two-factor");
           return;

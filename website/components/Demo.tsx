@@ -43,19 +43,60 @@ export function Demo() {
 
     try {
       setStatus("uploading");
-      const form = new FormData();
-      form.append("clip", file);
-      // Brief perceptible upload phase for UX.
-      await new Promise((r) => setTimeout(r, 600));
+      
+      // 1. Get presigned URL
+      const presignRes = await fetch("/api/upload/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+      });
+      if (!presignRes.ok) throw new Error("Failed to get upload URL");
+      const { url, key } = await presignRes.json();
+
+      // 2. Upload directly to MinIO/S3
+      const uploadRes = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload video to storage");
+
       setStatus("analyzing");
 
-      const res = await fetch("/api/classify", { method: "POST", body: form });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+      // 3. Start classification
+      const classifyRes = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, filename: file.name, size: file.size, mime: file.type }),
+      });
+
+      if (!classifyRes.ok) {
+        const data = await classifyRes.json().catch(() => ({}));
         throw new Error(data?.error ?? "Classification failed.");
       }
-      const data = (await res.json()) as { predictions: Prediction[] };
-      setResults(data.predictions);
+      
+      const { jobId, predictions, status: initialStatus } = await classifyRes.json();
+      
+      if (initialStatus === "processing" && jobId) {
+        // Polling loop
+        let isDone = false;
+        while (!isDone) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const pollRes = await fetch(`/api/classify/${jobId}`);
+          if (!pollRes.ok) throw new Error("Failed to check job status.");
+          const pollData = await pollRes.json();
+          if (pollData.status === "complete") {
+            setResults(pollData.predictions);
+            isDone = true;
+          } else if (pollData.status === "error") {
+            throw new Error("Analysis failed during background processing.");
+          }
+        }
+      } else {
+        // Synchronous fallback
+        setResults(predictions);
+      }
+      
       setStatus("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
