@@ -16,6 +16,7 @@ export async function POST() {
     setEmailVerified(created.id);
     userId = created.id;
   }
-  await createSession(userId);
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+  await createSession(userId, res);
+  return res;
 }

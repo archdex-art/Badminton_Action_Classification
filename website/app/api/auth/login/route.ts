@@ -82,32 +82,44 @@ export async function POST(req: Request) {
 
   // Unverified accounts get bounced to verification with a fresh link.
   if (!user.email_verified) {
-    await setPending(user.id);
+    const res = NextResponse.json(
+      { error: "verify", devLink: devLinkExposable() ? undefined : undefined },
+      { status: 403 }
+    );
+    await setPending(user.id, res);
     const token = signMagicToken({ userId: user.id, email: user.email, purpose: "verify" });
     const link = new URL(`/api/auth/magic?token=${token}`, appUrl).toString();
     
     await sendVerificationEmail(user.email, user.name, link);
-    return NextResponse.json(
-      { error: "verify", devLink: devLinkExposable() ? link : undefined },
-      { status: 403 }
-    );
+    
+    // We update the devLink after the fact so we can build it easily
+    if (devLinkExposable()) {
+      return NextResponse.json(
+        { error: "verify", devLink: link },
+        { status: 403, headers: res.headers } // preserve headers set by setPending
+      );
+    }
+    return res;
   }
 
   // Email 2FA: if enabled, require an emailed link before issuing a session.
   if (user.twofa_enabled) {
-    await setTwofaPending(user.id);
     const token = signMagicToken({ userId: user.id, email: user.email, purpose: "2fa" });
     const link = new URL(`/api/auth/magic?token=${token}`, appUrl).toString();
 
-    await sendTwoFactorEmail(user.email, user.name, link);
-    return NextResponse.json({
+    const res = NextResponse.json({
       twofa: true,
       email: user.email,
       devLink: devLinkExposable() ? link : undefined,
     });
+    
+    await setTwofaPending(user.id, res);
+    await sendTwoFactorEmail(user.email, user.name, link);
+    return res;
   }
 
-  await createSession(user.id);
+  const res = NextResponse.json({ ok: true });
+  await createSession(user.id, res);
   console.log(`[AUTH] Successful login for: ${lowerEmail}`);
-  return NextResponse.json({ ok: true });
+  return res;
 }

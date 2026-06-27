@@ -63,7 +63,6 @@ export async function POST(req: Request) {
   }
 
   const user = createUser(lowerEmail, name, password);
-  await setPending(user.id);
   
   const token = signMagicToken({ userId: user.id, email: lowerEmail, purpose: "verify" });
   const appUrl = process.env.NODE_ENV === "development" ? new URL(req.url).origin : (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin);
@@ -73,10 +72,14 @@ export async function POST(req: Request) {
   
   console.log(`[AUTH] New user signup: ${lowerEmail}`);
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     email: lowerEmail,
     // Only present in dev without SMTP, so verification is testable locally.
     devLink: devLinkExposable() ? link : undefined,
   });
+  
+  await setPending(user.id, res);
+  
+  return res;
 }

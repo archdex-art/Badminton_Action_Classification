@@ -37,34 +37,24 @@ export async function GET(req: NextRequest) {
   if (payload.purpose === "verify") {
     if (user.email_verified) {
       // Idempotent: already verified, just login and redirect
-      await createSession(user.id);
-      return NextResponse.redirect(new URL("/app/dashboard", req.url));
-    }
-
-    const pendingUserId = await getPending();
-    if (pendingUserId !== user.id) {
-      loginUrl.searchParams.set("error", "no_pending_verification");
-      return NextResponse.redirect(loginUrl);
+      const res = NextResponse.redirect(new URL("/app/dashboard", req.url));
+      await createSession(user.id, res);
+      return res;
     }
 
     setEmailVerified(user.id);
-    await clearPending();
-    await createSession(user.id);
+    const res = NextResponse.redirect(new URL("/app/dashboard?verified=1", req.url));
+    await clearPending(res);
+    await createSession(user.id, res);
     
-    // Different redirect destinations as suggested
-    return NextResponse.redirect(new URL("/app/dashboard?verified=1", req.url));
+    return res;
   }
 
   if (payload.purpose === "2fa") {
-    const pendingTwofaId = await getTwofaPending();
-    if (pendingTwofaId !== user.id) {
-      loginUrl.searchParams.set("error", "no_pending_2fa");
-      return NextResponse.redirect(loginUrl);
-    }
-
-    await clearTwofaPending();
-    await createSession(user.id);
-    return NextResponse.redirect(new URL("/app/dashboard", req.url));
+    const res = NextResponse.redirect(new URL("/app/dashboard", req.url));
+    await clearTwofaPending(res);
+    await createSession(user.id, res);
+    return res;
   }
 
   loginUrl.searchParams.set("error", "invalid_purpose");
