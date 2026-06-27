@@ -5,18 +5,21 @@ import path from "node:path";
 // Zero-dependency SQLite via Node's built-in driver. The database file lives in
 // ./data (gitignored). Opened lazily so `next build` never touches it.
 
-let db: DatabaseSync | null = null;
+declare global {
+  // eslint-disable-next-line no-var
+  var __db: DatabaseSync | undefined;
+}
 
 export function getDb(): DatabaseSync {
-  if (db) return db;
+  if (globalThis.__db) return globalThis.__db;
   const dir = path.join(process.cwd(), "data");
   mkdirSync(dir, { recursive: true });
   const instance = new DatabaseSync(path.join(dir, "app.db"));
   instance.exec("PRAGMA journal_mode = WAL;");
   instance.exec("PRAGMA foreign_keys = ON;");
   migrate(instance);
-  db = instance;
-  return db;
+  globalThis.__db = instance;
+  return instance;
 }
 
 function migrate(d: DatabaseSync) {

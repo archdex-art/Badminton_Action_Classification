@@ -79,7 +79,7 @@ export function setTwoFactor(userId: string, enabled: boolean) {
 
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
-export async function createSession(userId: string) {
+export async function createSession(userId: string, res?: NextResponse) {
   const token = randomBytes(32).toString("hex");
   const now = Date.now();
   getDb()
@@ -88,22 +88,41 @@ export async function createSession(userId: string) {
 
   const jar = await cookies();
   const secure = process.env.NODE_ENV === "production";
-  jar.set(SESSION_COOKIE, token, {
+  
+  const sessionOpts = {
     httpOnly: true,
     secure,
-    sameSite: "strict",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: SESSION_TTL,
-  });
-  jar.set(AUTHED_COOKIE, "1", { httpOnly: false, secure, sameSite: "lax", path: "/", maxAge: SESSION_TTL });
+  };
+  const authedOpts = {
+    httpOnly: false,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: SESSION_TTL,
+  };
+
+  jar.set(SESSION_COOKIE, token, sessionOpts);
+  jar.set(AUTHED_COOKIE, "1", authedOpts);
+
+  if (res) {
+    res.cookies.set(SESSION_COOKIE, token, sessionOpts);
+    res.cookies.set(AUTHED_COOKIE, "1", authedOpts);
+  }
 }
 
-export async function destroySession() {
+export async function destroySession(res?: NextResponse) {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token);
   jar.delete(SESSION_COOKIE);
   jar.delete(AUTHED_COOKIE);
+  if (res) {
+    res.cookies.delete(SESSION_COOKIE);
+    res.cookies.delete(AUTHED_COOKIE);
+  }
 }
 
 export async function getCurrentUser(): Promise<User | null> {
@@ -121,44 +140,50 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 // Pending-verification marker (between signup and verify).
-export async function setPending(userId: string) {
+export async function setPending(userId: string, res?: NextResponse) {
   const jar = await cookies();
-  jar.set(PENDING_COOKIE, userId, {
+  const opts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "strict" as const,
     path: "/",
     maxAge: 60 * 30,
-  });
+  };
+  jar.set(PENDING_COOKIE, userId, opts);
+  if (res) res.cookies.set(PENDING_COOKIE, userId, opts);
 }
 
 export async function getPending(): Promise<string | null> {
   return (await cookies()).get(PENDING_COOKIE)?.value ?? null;
 }
 
-export async function clearPending() {
+export async function clearPending(res?: NextResponse) {
   (await cookies()).delete(PENDING_COOKIE);
+  if (res) res.cookies.delete(PENDING_COOKIE);
 }
 
 // 2FA marker: set after a correct password when the user has 2FA enabled, held
 // until the emailed login code is confirmed (no session is issued before then).
-export async function setTwofaPending(userId: string) {
+export async function setTwofaPending(userId: string, res?: NextResponse) {
   const jar = await cookies();
-  jar.set(TWOFA_COOKIE, userId, {
+  const opts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "strict" as const,
     path: "/",
     maxAge: 60 * 10,
-  });
+  };
+  jar.set(TWOFA_COOKIE, userId, opts);
+  if (res) res.cookies.set(TWOFA_COOKIE, userId, opts);
 }
 
 export async function getTwofaPending(): Promise<string | null> {
   return (await cookies()).get(TWOFA_COOKIE)?.value ?? null;
 }
 
-export async function clearTwofaPending() {
+export async function clearTwofaPending(res?: NextResponse) {
   (await cookies()).delete(TWOFA_COOKIE);
+  if (res) res.cookies.delete(TWOFA_COOKIE);
 }
 
 // ── Account Lockout ────────────────────────────────────────────────────────
