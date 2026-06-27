@@ -1,0 +1,63 @@
+version: "1"
+
+services:
+  # 1. Managed Redis instance for Rate Limiting & Account Lockouts
+  - type: redis
+    name: badminton-redis
+    ipAllowList: [] # empty means only accessible inside Render by other services
+    plan: free
+
+  # 2. FastAPI Model Server
+  - type: web
+    name: badminton-model
+    env: python
+    # Navigate to model folder, install dependencies
+    buildCommand: "cd model && pip install -r requirements.txt"
+    # Start uvicorn. Render injects the $PORT environment variable.
+    startCommand: "cd model && uvicorn badminton.serving.app:app --host 0.0.0.0 --port $PORT"
+    plan: starter # ML models often need more than 512MB RAM, standard/starter is recommended
+    envVars:
+      - key: PYTHONPATH
+        value: "src"
+      - key: POSE_DEVICE
+        value: "cpu"
+      - key: POSE_MODE
+        value: "balanced"
+      - key: MODEL_PATH
+        value: "model.pt"
+
+  # 3. Next.js Web App
+  - type: web
+    name: badminton-website
+    env: node
+    # Install dependencies and build Next.js
+    buildCommand: "cd website && npm install && npm run build"
+    # Start the production Next.js server
+    startCommand: "cd website && npm run start"
+    plan: free
+    
+    # Render Persistent Disk to safely store the SQLite database
+    # The Next.js app creates `app.db` inside `website/data/`
+    disk:
+      name: sqlite-data
+      mountPath: /opt/render/project/src/website/data
+      sizeGB: 1
+
+    envVars:
+      # Automatically sets the Site URL to the public URL Render gives this service
+      - key: NEXT_PUBLIC_SITE_URL
+        value: "https://badminton-website.onrender.com"
+      
+      # Link securely to the managed Redis instance
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: badminton-redis
+          property: connectionString
+          
+      # Link to the FastAPI Model Server internally
+      - key: MODEL_SERVER_URL
+        fromService:
+          type: web
+          name: badminton-model
+          envVarKey: RENDER_EXTERNAL_URL
