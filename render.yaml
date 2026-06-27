@@ -36,12 +36,11 @@ services:
     startCommand: "cd website && npm run start"
     plan: free
     
-    # Render Persistent Disk to safely store the SQLite database
-    # The Next.js app creates `app.db` inside `website/data/`
-    disk:
-      name: sqlite-data
-      mountPath: /opt/render/project/src/website/data
-      sizeGB: 1
+    # NOTE: Render's Free tier does not support Persistent Disks.
+    # The Next.js app will create `app.db` automatically in ephemeral storage.
+    # This means your database (users, sessions, history) will reset when the 
+    # server sleeps or restarts. This is fine for a Milestone Demo!
+    # (If you upgrade to the 'starter' plan, you can add a `disk` block here for persistence).
 
     envVars:
       # Automatically sets the Site URL to the public URL Render gives this service
