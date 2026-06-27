@@ -57,32 +57,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const SidebarBody = (
     <div className="flex h-full flex-col">
-      <Link href="/" className="flex items-center gap-2.5 px-2 py-1">
+      <Link
+        href="/"
+        className="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-overlay/60"
+      >
         <BrandMark className="h-8 w-8" />
         <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
           SkeletonCourt
         </span>
       </Link>
 
-      <nav className="mt-6 flex-1 space-y-1">
+      <p className="mt-7 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
+        Workspace
+      </p>
+      <nav className="mt-2 flex-1 space-y-0.5">
         {NAV.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive ? "text-ink" : "text-muted hover:bg-elevated hover:text-ink"
+              aria-current={isActive ? "page" : undefined}
+              className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200 ${
+                isActive ? "text-ink" : "text-muted hover:bg-overlay/60 hover:text-ink"
               }`}
             >
               {isActive && (
                 <motion.span
                   layoutId="app-nav-active"
-                  className="absolute inset-0 rounded-xl bg-elevated"
-                  transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                />
+                  className="absolute inset-0 rounded-xl border border-line/10 bg-elevated shadow-[inset_0_1px_0_0_rgb(var(--edge)/var(--edge-alpha))]"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                >
+                  <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent shadow-[0_0_12px_-1px_rgb(var(--accent)/0.7)]" />
+                </motion.span>
               )}
-              <span className="relative z-10 flex items-center gap-3">
+              <span
+                className={`relative z-10 flex items-center gap-3 ${
+                  isActive
+                    ? "[&_svg]:text-accent"
+                    : "[&_svg]:text-faint group-hover:[&_svg]:text-muted"
+                }`}
+              >
                 <NavIcon name={item.icon} />
                 {item.label}
               </span>
@@ -91,12 +106,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
 
-      <div className="rounded-2xl border bg-elevated/50 p-4">
+      <div className="panel overflow-hidden rounded-2xl p-4">
         <div className="flex items-center gap-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          <p className="text-xs font-medium text-ink">Free during research preview</p>
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success/60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+          </span>
+          <p className="text-xs font-semibold text-ink">Free during research preview</p>
         </div>
-        <p className="mt-1.5 text-xs text-muted">
+        <p className="mt-1.5 text-xs leading-relaxed text-muted">
           Unlimited classifications — no card required.
         </p>
       </div>
@@ -106,7 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-[100svh] bg-canvas">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r bg-surface p-4 lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-line/[0.08] bg-surface p-4 lg:flex">
         {SidebarBody}
       </aside>
 
@@ -122,7 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <motion.aside
               initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }}
               transition={{ type: "spring", stiffness: 360, damping: 36 }}
-              className="fixed inset-y-0 left-0 z-50 w-64 border-r bg-surface p-4 lg:hidden"
+              className="panel-raised fixed inset-y-0 left-0 z-50 flex w-64 flex-col rounded-none border-y-0 border-l-0 p-4 lg:hidden"
             >
               {SidebarBody}
             </motion.aside>
@@ -132,24 +150,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main column */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-canvas/80 px-4 backdrop-blur md:px-6">
+        <header className="glass-canvas sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line/[0.08] px-4 md:px-6">
           <button
             type="button"
             aria-label="Open menu"
             onClick={() => setOpen(true)}
-            className="grid h-9 w-9 place-items-center rounded-lg border text-ink lg:hidden"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-line/10 text-muted transition-colors hover:bg-overlay/60 hover:text-ink lg:hidden"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
           </button>
 
-          <h1 className="font-display text-base font-semibold tracking-tight text-ink">
+          <h1 className="font-display text-[17px] font-semibold tracking-tight text-ink">
             {active?.label ?? "Dashboard"}
           </h1>
 
           <div className="ml-auto flex items-center gap-2">
             <Link
               href="/app/videos"
-              className="hidden items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas transition-transform hover:-translate-y-0.5 sm:inline-flex"
+              className="group hidden items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-canvas shadow-[0_8px_24px_-12px_rgb(var(--shadow-color)/0.7)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgb(var(--shadow-color)/0.8)] active:translate-y-0 sm:inline-flex"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
               New analysis
@@ -160,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => setMenu((m) => !m)}
                 aria-label="Account menu"
-                className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-indigo to-cyan text-sm font-semibold text-white"
+                className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-indigo to-cyan text-sm font-semibold text-white shadow-[0_0_0_1px_rgb(var(--line)/0.12),0_6px_16px_-6px_rgb(0_212_255/0.5)] ring-2 ring-transparent transition-all duration-200 hover:ring-accent/30"
               >
                 {(email ?? "U").slice(0, 1).toUpperCase()}
               </button>
@@ -173,23 +191,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -6, scale: 0.98 }}
                       transition={{ duration: 0.16 }}
-                      className="absolute right-0 z-20 mt-2 w-56 rounded-2xl border bg-surface p-2 shadow-card-hover"
+                      className="panel-raised absolute right-0 z-20 mt-2.5 w-60 rounded-2xl p-1.5"
                     >
-                      <div className="px-3 py-2">
-                        <p className="truncate text-sm font-medium text-ink">{email ?? "Member"}</p>
-                        <p className="text-xs text-muted">Free preview</p>
+                      <div className="px-2.5 py-2">
+                        <p className="truncate text-sm font-semibold text-ink">{email ?? "Member"}</p>
+                        <p className="text-xs text-faint">Free preview</p>
                       </div>
                       <div className="my-1 h-px bg-line/10" />
-                      <Link href="/app/settings" onClick={() => setMenu(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-elevated">
+                      <Link href="/app/settings" onClick={() => setMenu(false)} className="block rounded-lg px-2.5 py-2 text-sm font-medium text-muted transition-colors hover:bg-overlay/70 hover:text-ink">
                         Settings
                       </Link>
-                      <Link href="/" onClick={() => setMenu(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-elevated">
+                      <Link href="/" onClick={() => setMenu(false)} className="block rounded-lg px-2.5 py-2 text-sm font-medium text-muted transition-colors hover:bg-overlay/70 hover:text-ink">
                         Back to website
                       </Link>
+                      <div className="my-1 h-px bg-line/10" />
                       <button
                         type="button"
                         onClick={handleSignOut}
-                        className="mt-0.5 block w-full rounded-lg px-3 py-2 text-left text-sm text-red-500 hover:bg-red-500/10"
+                        className="block w-full rounded-lg px-2.5 py-2 text-left text-sm font-medium text-error transition-colors hover:bg-error/10"
                       >
                         Sign out
                       </button>
@@ -201,7 +220,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="px-4 py-6 md:px-6 md:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1320px] px-4 py-6 md:px-8 md:py-9">{children}</main>
       </div>
     </div>
   );
